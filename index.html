@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Travelking - Availability Check</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 0;
+        background-image: url("https://images.unsplash.com/photo-1506012787146-f92b2d7d6d96?q=80&w=1169&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: cover;
+      }
+      .btn {
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+        border: none;
+        background: blue;
+        color: white;
+        border-radius: 10px;
+      }
+      #calendarPopup {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        justify-content: center;
+        align-items: center;
+      }
+      #calendarPopup .content {
+        background: white;
+        padding: 20px;
+        border-radius: 5px;
+        width: 400px;
+      }
+      .available-day {
+        position: relative;
+        border-color: #28a745;
+        border-radius: 50%;
+        text-align: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <button id="checkAvailabilityBtn" class="btn">
+      Check Availability
+    </button>
+
+    <div id="calendarPopup">
+      <div class="content">
+        <h2>Select a date</h2>
+        <input id="calendar" type="text" />
+        <button id="confirmBtn" class="btn">Show Rooms</button>
+        <div id="roomDetails"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+      const checkAvailabilityBtn = document.getElementById(
+        "checkAvailabilityBtn"
+      );
+      const calendarPopup = document.getElementById("calendarPopup");
+      const calendarInput = document.getElementById("calendar");
+      const confirmBtn = document.getElementById("confirmBtn");
+      const roomDetails = document.getElementById("roomDetails");
+      let availableDates = [];
+
+      const today = new Date();
+      const startDate = today.toISOString().split("T")[0];
+      const endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 6);
+      const endDateStr = endDate.toISOString().split("T")[0];
+
+      // loading availability
+      const availabilityApiUrl = `https://api.travelcircus.net/hotels/17080/checkins?E&party=%7B%22adults%22:2,%22children%22:%5B%5D%7D&domain=de&date_start=${startDate}&date_end=${endDateStr}`;
+
+      async function fetchAvailabilityData() {
+        try {
+          const response = await fetch(availabilityApiUrl);
+          if (!response.ok) throw new Error("Failed to load availability");
+          const data = await response.json();
+
+          if (data._embedded && data._embedded.hotel_availabilities) {
+            availableDates = data._embedded.hotel_availabilities.map(
+              (item) => ({
+                date: item.date,
+                price: item.price,
+                min_nights: item.min_nights,
+                cheapest: item.cheapest,
+              })
+            );
+            initCalendar();
+          } else {
+            throw new Error("Availability data is in an unexpected format");
+          }
+        } catch (error) {
+          console.error(error);
+          alert("Error loading data");
+        }
+      }
+
+      // formatting date
+      function formatDateToString(date) {
+        const utcDate = new Date(
+          Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+        );
+        return utcDate.toISOString().split("T")[0];
+      }
+
+      // converting date to DD.MM.YYYY
+      function formatDate(dateString) {
+        const date = new Date(dateString);
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = date.getFullYear();
+        return `${day}.${month}.${year}`;
+      }
+
+      // calendar function
+      function initCalendar() {
+        flatpickr(calendarInput, {
+          inline: true,
+          dateFormat: "Y-m-d",
+          minDate: today,
+          maxDate: endDateStr,
+          mode: "range",
+          onDayCreate: (dObj, dStr, fp, dayElem) => {
+            const dateStr = formatDateToString(dayElem.dateObj);
+            const availableDate = availableDates.find(
+              (item) => item.date === dateStr
+            );
+            if (availableDate) {
+              dayElem.classList.add("available-day");
+            }
+          },
+          onChange: (selectedDates, dateStr) => {
+            const selectedDatesArray = selectedDates.map((date) =>
+              formatDateToString(date)
+            );
+            const selectedDateDetails = availableDates.filter((item) =>
+              selectedDatesArray.includes(item.date)
+            );
+            if (selectedDateDetails.length > 0) {
+              showRoomDetails(selectedDateDetails);
+            }
+          },
+        });
+      }
+
+      checkAvailabilityBtn.addEventListener("click", () => {
+        fetchAvailabilityData();
+        calendarPopup.style.display = "flex";
+      });
+
+      function closePopup() {
+        calendarPopup.style.display = "none";
+      }
+
+      confirmBtn.addEventListener("click", () => {
+        const selectedDates = calendarInput.value.split(",");
+        if (selectedDates.length > 0) {
+          fetchRoomData(selectedDates);
+        }
+      });
+      // loading rooms
+      async function fetchRoomData(selectedDates) {
+        try {
+          const checkinDate = selectedDates[0];
+          const checkoutDate = selectedDates[selectedDates.length - 1];
+          const url = `https://api.travelcircus.net/hotels/17080/quotes?locale=de_DE&checkin=${checkinDate}&checkout=${checkoutDate}&party=%7B%22adults%22:1,%22children%22:%5B%5D%7D&domain=de`;
+
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("Failed to load rooms");
+          const data = await response.json();
+          showRoomDetails(data);
+        } catch (error) {
+          console.error(error);
+          alert("Error loading rooms");
+        }
+      }
+
+      // room details
+      function showRoomDetails(selectedDates) {
+        roomDetails.innerHTML = "<h3>Room Details:</h3>";
+        if (selectedDates && selectedDates.length > 0) {
+          selectedDates.forEach((selectedDate) => {
+            const roomInfo = document.createElement("div");
+            const formattedDate = formatDate(selectedDate.date);
+            roomInfo.innerHTML = `
+                <p><strong>Date:</strong> ${formattedDate}</p>
+                <p><strong>Price:</strong> ${selectedDate.price} EUR / night</p>
+                <p><strong>Minimum number of nights:</strong> ${
+                  selectedDate.min_nights
+                }</p>
+                <p><strong>Cheapest price:</strong> ${
+                  selectedDate.cheapest
+                    ? "Cheapest price"
+                    : "Not the cheapest price"
+                }</p>
+                <hr>
+            `;
+            roomDetails.appendChild(roomInfo);
+          });
+        } else {
+          roomDetails.innerHTML =
+            "<p>No rooms available for these dates.</p>";
+        }
+      }
+    </script>
+  </body>
+</html>
